@@ -1,0 +1,3 @@
+Nombre,Categoria,Unidad_Base,Bulk_Nombre,Unidades_Por_Bulk,Costo_Por_Bulk,Modos,Codigo_Barras,Emoji
+Tomate,Verduras,Tomate,Cajilla,240,1000,"[{'nombre': '3  tomates', 'unidades': 3, 'precio': 20}, {'nombre': 'Media ', 'unidades': 6, 'precio': 40}, {'nombre': 'Docena', 'unidades': 12, 'precio': 80}]",,🍊
+Chiltoma,Verduras,Chiltoma,Cajilla ,120,1000,"[{'nombre': '1 chiltoma', 'unidades': 1, 'precio': 10}]",,📦
