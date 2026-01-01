@@ -32,7 +32,8 @@ def cargar_datos():
     
     p = pd.read_csv('productos.csv')
     v = pd.read_csv('ventas.csv')
-    v['Fecha'] = pd.to_datetime(v['Fecha'])
+    if not v.empty:
+        v['Fecha'] = pd.to_datetime(v['Fecha'], format='mixed')
     return p, v
 
 def guardar_datos(p, v):
@@ -41,17 +42,12 @@ def guardar_datos(p, v):
 
 productos, ventas = cargar_datos()
 
-# --- MENÚ DE 8 PESTAÑAS ---
+# --- MENÚ ---
 st.sidebar.title(f"👤 {st.session_state['empleado']}")
 opcion = st.sidebar.selectbox("Menú Principal", [
-    "🛒 Registrar Venta", 
-    "📋 Inventario Real", 
-    "📊 Dashboard", 
-    "📅 Registro Mensual",
-    "✨ Configurar Productos", 
-    "📥 Añadir Stock",
-    "✏️ Editar Producto", 
-    "⚙️ Gestión (Reset)"
+    "🛒 Registrar Venta", "📋 Inventario Real", "📊 Dashboard", 
+    "📅 Registro Mensual", "✨ Configurar Productos", "📥 Añadir Stock",
+    "✏️ Editar Producto", "⚙️ Gestión (Reset)"
 ])
 
 # 1. REGISTRAR VENTA
@@ -62,17 +58,19 @@ if opcion == "🛒 Registrar Venta":
     else:
         busqueda = st.text_input("🔍 Buscar...")
         df_m = productos[productos['Nombre'].str.contains(busqueda, case=False)] if busqueda else productos
-        for idx, p in df_m.iterrows():
-            with st.expander(f"📦 {p['Nombre']}"):
-                modos = eval(p['Modos'])
+        for idx, p_row in df_m.iterrows():
+            with st.expander(f"📦 {p_row['Nombre']}"):
+                modos = eval(p_row['Modos'])
+                cols = st.columns(len(modos))
                 for m_idx, m in enumerate(modos):
-                    if st.button(f"Vender {m['nombre']} - C${m['precio']}", key=f"v_{idx}_{m_idx}"):
-                        cost_u = p['Costo_Por_Bulk'] / p['Unidades_Por_Bulk']
+                    if cols[m_idx].button(f"{m['nombre']}\nC${m['precio']}", key=f"v_{idx}_{m_idx}"):
+                        # Cálculo de costo unitario actual
+                        cost_u = p_row['Costo_Por_Bulk'] / p_row['Unidades_Por_Bulk']
                         ganancia_v = m['precio'] - (m['unidades'] * cost_u)
-                        nv = pd.DataFrame([{'Fecha': datetime.now(), 'Nombre': p['Nombre'], 'Modo': m['nombre'], 'Unidades_Vendidas': m['unidades'], 'Precio_Venta': m['precio'], 'Ganancia': round(ganancia_v, 2), 'Empleado': st.session_state['empleado']}])
+                        nv = pd.DataFrame([{'Fecha': datetime.now(), 'Nombre': p_row['Nombre'], 'Modo': m['nombre'], 'Unidades_Vendidas': m['unidades'], 'Precio_Venta': m['precio'], 'Ganancia': round(ganancia_v, 2), 'Empleado': st.session_state['empleado']}])
                         ventas = pd.concat([ventas, nv], ignore_index=True)
                         guardar_datos(productos, ventas)
-                        st.success("¡Venta realizada!")
+                        st.success(f"¡Venta de {m['nombre']} realizada!")
                         st.rerun()
 
 # 2. INVENTARIO REAL
@@ -86,75 +84,128 @@ elif opcion == "📋 Inventario Real":
         st.table(df_inv[['Nombre', 'Stock_Actual', 'Unidades_Vendidas', 'Precio_Venta', 'Ganancia', '%_Ganancia']])
     else: st.info("Inventario vacío.")
 
-# 3. DASHBOARD
+# 3. DASHBOARD Y 4. MENSUAL
 elif opcion == "📊 Dashboard":
     st.header("📊 Resumen de Negocio")
     if not ventas.empty:
         col1, col2 = st.columns(2)
         col1.metric("Ingreso Total", f"C$ {ventas['Precio_Venta'].sum():.2f}")
         col2.metric("Ganancia Limpia", f"C$ {ventas['Ganancia'].sum():.2f}")
-        st.subheader("Velas de Ganancia por Producto")
         st.bar_chart(ventas.groupby('Nombre')['Ganancia'].sum())
-    else: st.info("📊 Las gráficas aparecerán después de la primera venta.")
 
-# 4. REGISTRO MENSUAL
 elif opcion == "📅 Registro Mensual":
     st.header("📅 Historial por Mes")
     if not ventas.empty:
         ventas['Mes'] = ventas['Fecha'].dt.strftime('%Y-%m')
         mes = st.selectbox("Mes:", ventas['Mes'].unique())
         st.write(ventas[ventas['Mes'] == mes])
-    else: st.info("No hay ventas registradas aún.")
 
 # 5. CONFIGURAR PRODUCTOS
 elif opcion == "✨ Configurar Productos":
     st.header("✨ Nuevo Producto")
     with st.form("f1"):
-        n = st.text_input("Nombre")
-        cb = st.number_input("Costo Bulto", 0.0)
-        ub = st.number_input("Unidades en Bulto", 1)
-        pv = st.number_input("Precio Venta (Detalle)", 0.0)
-        if st.form_submit_button("Guardar"):
-            mod = str([{'nombre': 'Detalle', 'unidades': 1, 'precio': pv}])
-            new = pd.DataFrame([{'Nombre': n, 'Unidades_Por_Bulk': ub, 'Costo_Por_Bulk': cb, 'Modos': mod}])
-            productos = pd.concat([productos, new], ignore_index=True)
-            guardar_datos(productos, ventas)
-            st.success("Producto creado.")
-            st.rerun()
+        n = st.text_input("Nombre del Producto")
+        cb = st.number_input("Costo del Bulto Completo", 0.0)
+        ub = st.number_input("Unidades totales en el Bulto", 1)
+        st.subheader("Opciones / Modos de Venta (Hasta 5)")
+        modos_lista = []
+        for i in range(5):
+            st.write(f"Modo {i+1}")
+            c1, c2, c3 = st.columns(3)
+            m_nom = c1.text_input("Etiqueta", key=f"n_{i}")
+            m_uni = c2.number_input("Unidades", min_value=1, key=f"u_{i}")
+            m_pre = c3.number_input("Precio C$", 0.0, key=f"p_{i}")
+            if m_nom != "": modos_lista.append({'nombre': m_nom, 'unidades': m_uni, 'precio': m_pre})
+        if st.form_submit_button("Guardar Producto"):
+            if n != "" and len(modos_lista) > 0:
+                new = pd.DataFrame([{'Nombre': n, 'Unidades_Por_Bulk': ub, 'Costo_Por_Bulk': cb, 'Modos': str(modos_lista)}])
+                productos = pd.concat([productos, new], ignore_index=True)
+                guardar_datos(productos, ventas)
+                st.success("Producto creado.")
+                st.rerun()
 
-# 6. AÑADIR STOCK
+# 6. AÑADIR STOCK (CON COSTO PROMEDIO)
 elif opcion == "📥 Añadir Stock":
-    st.header("📥 Cargar Mercadería")
+    st.header("📥 Registro de Nueva Compra")
     if not productos.empty:
-        p_sel = st.selectbox("¿A qué producto?", productos['Nombre'])
+        p_sel = st.selectbox("Selecciona Producto:", productos['Nombre'])
         idx = productos[productos['Nombre'] == p_sel].index[0]
-        cuanto = st.number_input("Unidades nuevas", 1)
-        if st.button("Sumar al Inventario"):
-            productos.at[idx, 'Unidades_Por_Bulk'] += cuanto
-            guardar_datos(productos, ventas)
-            st.success("Stock actualizado.")
-    else: st.warning("Crea productos primero.")
+        
+        # Datos actuales para el cálculo
+        v_tot = ventas[ventas['Nombre'] == p_sel]['Unidades_Vendidas'].sum()
+        unidades_actuales = productos.at[idx, 'Unidades_Por_Bulk'] - v_tot
+        costo_bulto_actual = productos.at[idx, 'Costo_Por_Bulk']
+        unidades_en_bulto_actual = productos.at[idx, 'Unidades_Por_Bulk']
+        
+        costo_unitario_actual = costo_bulto_actual / unidades_en_bulto_actual
+        valor_inventario_actual = unidades_actuales * costo_unitario_actual
+        
+        st.info(f"Tienes actualmente **{unidades_actuales}** unidades en stock.")
+        
+        with st.form("stock_form"):
+            unid_nuevas = st.number_input("¿Cuántas unidades nuevas compraste?", min_value=1)
+            costo_nuevo_total = st.number_input("¿Cuánto pagaste por estas unidades nuevas en total? (C$)", min_value=0.0)
+            
+            if st.form_submit_button("Registrar Compra y Promediar"):
+                # Cálculo de Promedio Ponderado
+                # Valor Total = Valor Viejo + Valor Nuevo
+                # Unidades Totales = Unidades Viejas + Unidades Nuevas
+                valor_total = valor_inventario_actual + costo_nuevo_total
+                unidades_totales_finales = unidades_actuales + unid_nuevas
+                
+                # Para mantener la estructura del bulto, actualizamos el costo del bulto 
+                # proporcionalmente a las unidades totales registradas.
+                nuevo_costo_unidad = valor_total / unidades_totales_finales
+                
+                # Actualizamos el CSV: sumamos las unidades y ajustamos el costo de bulto 
+                # para que el costo unitario (Costo_Por_Bulk / Unidades_Por_Bulk) sea el promedio.
+                productos.at[idx, 'Unidades_Por_Bulk'] += unid_nuevas
+                productos.at[idx, 'Costo_Por_Bulk'] = round(nuevo_costo_unidad * productos.at[idx, 'Unidades_Por_Bulk'], 2)
+                
+                guardar_datos(productos, ventas)
+                st.success(f"¡Compra registrada! El nuevo costo promedio por unidad es C$ {nuevo_costo_unidad:.2f}")
+                st.rerun()
+    else: st.warning("No hay productos registrados.")
 
-# 7. EDITAR PRODUCTO (CORREGIDO - NO MÁS NEGRO)
+# 7. EDITAR PRODUCTO 
 elif opcion == "✏️ Editar Producto":
-    st.header("✏️ Modificar Existentes")
+    st.header("✏️ Modificar Producto Existente")
     if not productos.empty:
-        p_edit = st.selectbox("Selecciona producto:", productos['Nombre'])
+        p_edit = st.selectbox("Selecciona producto a editar:", productos['Nombre'])
         idx = productos[productos['Nombre'] == p_edit].index[0]
-        # Cargamos los valores actuales para que no esté vacío
-        nom_act = st.text_input("Nombre:", value=productos.at[idx, 'Nombre'])
-        cost_act = st.number_input("Costo Bulto:", value=float(productos.at[idx, 'Costo_Por_Bulk']))
-        if st.button("Actualizar"):
-            productos.at[idx, 'Nombre'] = nom_act
-            productos.at[idx, 'Costo_Por_Bulk'] = cost_act
-            guardar_datos(productos, ventas)
-            st.success("Cambios aplicados.")
-            st.rerun()
-    else: st.info("No hay productos para editar.")
+        p_data = productos.iloc[idx]
+        modos_actuales = eval(p_data['Modos'])
+        
+        with st.form("edit_form"):
+            new_n = st.text_input("Nombre del Producto:", value=p_data['Nombre'])
+            new_cb = st.number_input("Costo Bulto Actual (Promediado):", value=float(p_data['Costo_Por_Bulk']))
+            new_ub = st.number_input("Total de unidades históricas:", value=int(p_data['Unidades_Por_Bulk']))
+            
+            st.subheader("Editar Modos de Venta")
+            nuevos_modos = []
+            for i in range(5):
+                val_nom = modos_actuales[i]['nombre'] if i < len(modos_actuales) else ""
+                val_uni = modos_actuales[i]['unidades'] if i < len(modos_actuales) else 1
+                val_pre = modos_actuales[i]['precio'] if i < len(modos_actuales) else 0.0
+                st.write(f"Opción {i+1}")
+                c1, c2, c3 = st.columns(3)
+                m_nom = c1.text_input("Etiqueta", value=val_nom, key=f"en_{i}")
+                m_uni = c2.number_input("Unidades", min_value=1, value=int(val_uni), key=f"eu_{i}")
+                m_pre = c3.number_input("Precio C$", value=float(val_pre), key=f"ep_{i}")
+                if m_nom != "": nuevos_modos.append({'nombre': m_nom, 'unidades': m_uni, 'precio': m_pre})
+            
+            if st.form_submit_button("Actualizar Todo"):
+                productos.at[idx, 'Nombre'] = new_n
+                productos.at[idx, 'Costo_Por_Bulk'] = new_cb
+                productos.at[idx, 'Unidades_Por_Bulk'] = new_ub
+                productos.at[idx, 'Modos'] = str(nuevos_modos)
+                guardar_datos(productos, ventas)
+                st.success("✅ Producto actualizado.")
+                st.rerun()
 
 # 8. GESTIÓN (RESET)
 elif opcion == "⚙️ Gestión (Reset)":
-    st.header("⚙️ Limpieza de Sistema")
+    st.header("⚙️ Limpieza")
     if st.button("🚨 BORRAR SOLO VENTAS"):
         guardar_datos(productos, pd.DataFrame(columns=['Fecha', 'Nombre', 'Modo', 'Unidades_Vendidas', 'Precio_Venta', 'Ganancia', 'Empleado']))
         st.rerun()
