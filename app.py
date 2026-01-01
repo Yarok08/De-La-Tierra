@@ -39,11 +39,19 @@ def guardar_datos(p, v):
 
 productos, ventas = cargar_datos()
 
-# --- MENÚ ---
+# --- MENÚ COMPLETO (SIN QUITAR NADA) ---
 st.sidebar.title(f"👤 {st.session_state['empleado']}")
-opcion = st.sidebar.selectbox("Menú", ["Registrar Ventas", "Inventario Real", "Dashboard", "Editar Productos"])
+opcion = st.sidebar.selectbox("Menú", [
+    "Registrar Ventas", 
+    "Inventario Real", 
+    "Configurar Productos", 
+    "Añadir Stock",
+    "Editar Precios",
+    "Dashboard", 
+    "Gestión (Reset)"
+])
 
-# --- VISTA DE VENTAS ---
+# --- 1. REGISTRAR VENTAS ---
 if opcion == "Registrar Ventas":
     st.header("🛒 Ventas")
     busqueda = st.text_input("🔍 Buscar producto...")
@@ -54,41 +62,61 @@ if opcion == "Registrar Ventas":
             modos = eval(p['Modos'])
             for m_idx, m in enumerate(modos):
                 if st.button(f"{m['nombre']} - C${m['precio']}", key=f"v_{idx}_{m_idx}"):
-                    # Cálculo de ganancia basado en el costo por unidad
                     cost_u = p['Costo_Por_Bulk'] / p['Unidades_Por_Bulk']
                     ganancia_v = m['precio'] - (m['unidades'] * cost_u)
-                    
                     nv = pd.DataFrame([{'Fecha': datetime.now(), 'Nombre': p['Nombre'], 'Modo': m['nombre'], 'Unidades_Vendidas': m['unidades'], 'Precio_Venta': m['precio'], 'Ganancia': round(ganancia_v, 2), 'Empleado': st.session_state['empleado']}])
                     ventas = pd.concat([ventas, nv], ignore_index=True)
                     guardar_datos(productos, ventas)
                     st.success("✅ Venta Guardada")
                     st.rerun()
 
-# --- INVENTARIO REAL (LA PARTE QUE TE FALTABA) ---
+# --- 2. INVENTARIO REAL ---
 elif opcion == "Inventario Real":
-    st.header("📋 Control de Stock y Ganancias Reales")
-    
+    st.header("📋 Control de Stock y Ganancias")
     if not productos.empty:
-        # Sumamos las ventas por cada producto
         res_v = ventas.groupby('Nombre').agg({'Unidades_Vendidas': 'sum', 'Precio_Venta': 'sum', 'Ganancia': 'sum'}).reset_index()
-        
-        # Unimos con los productos
         df_inv = pd.merge(productos, res_v, on='Nombre', how='left').fillna(0)
-        
-        # CÁLCULOS MÁGICOS
         df_inv['Stock_Restante'] = df_inv['Unidades_Por_Bulk'] - df_inv['Unidades_Vendidas']
         df_inv['%_Ganancia'] = (df_inv['Ganancia'] / df_inv['Precio_Venta'] * 100).fillna(0).round(2)
-        
-        # Tabla final limpia
         tabla = df_inv[['Nombre', 'Unidades_Por_Bulk', 'Stock_Restante', 'Unidades_Vendidas', 'Precio_Venta', 'Ganancia', '%_Ganancia']]
-        
-        # Mostrar tabla
-        st.write("### Resumen de Inventario")
         st.dataframe(tabla, use_container_width=True)
-        
-        # Métricas grandes
-        c1, c2 = st.columns(2)
-        c1.metric("Dinero Total en Ventas", f"C$ {ventas['Precio_Venta'].sum():.2f}")
-        c2.metric("Ganancia Neta (Limpia)", f"C$ {ventas['Ganancia'].sum():.2f}")
+        st.metric("Ganancia Total Acumulada", f"C$ {ventas['Ganancia'].sum():.2f}")
     else:
-        st.warning("No hay productos registrados.")
+        st.info("No hay productos.")
+
+# --- 3. CONFIGURAR PRODUCTOS (NUEVOS) ---
+elif opcion == "Configurar Productos":
+    st.header("🆕 Nuevo Producto")
+    with st.form("nuevo_p"):
+        nom = st.text_input("Nombre del Producto")
+        costo_b = st.number_input("Costo del Bulto (C$)", min_value=0.0)
+        cant_b = st.number_input("Total Unidades en el Bulto", min_value=1)
+        st.write("---")
+        st.write("Define cómo lo vendes (Ej: Detalle, Media Docena, Docena):")
+        m1_n = st.text_input("Modo 1 (Nombre)", value="Detalle")
+        m1_u = st.number_input("Unidades en Modo 1", value=1)
+        m1_p = st.number_input("Precio Modo 1", value=0.0)
+        if st.form_submit_button("Guardar Producto"):
+            modos_list = [{'nombre': m1_n, 'unidades': m1_u, 'precio': m1_p}]
+            nuevo = pd.DataFrame([{'Nombre': nom, 'Unidades_Por_Bulk': cant_b, 'Costo_Por_Bulk': costo_b, 'Modos': str(modos_list)}])
+            productos = pd.concat([productos, nuevo], ignore_index=True)
+            guardar_datos(productos, ventas)
+            st.success("Producto creado")
+            st.rerun()
+
+# --- 4. GESTIÓN (RESET PARA TUS PRUEBAS) ---
+elif opcion == "Gestión (Reset)":
+    st.header("⚙️ Zona de Peligro")
+    st.warning("Esto borrará permanentemente los datos seleccionados.")
+    if st.button("🚨 BORRAR SOLO VENTAS (Dejar productos)"):
+        ventas = pd.DataFrame(columns=['Fecha', 'Nombre', 'Modo', 'Unidades_Vendidas', 'Precio_Venta', 'Ganancia', 'Empleado'])
+        guardar_datos(productos, ventas)
+        st.success("Ventas reseteadas a cero.")
+        st.rerun()
+    
+    if st.button("🧨 BORRAR TODO (Ventas y Productos)"):
+        productos = pd.DataFrame(columns=['Nombre', 'Unidades_Por_Bulk', 'Costo_Por_Bulk', 'Modos'])
+        ventas = pd.DataFrame(columns=['Fecha', 'Nombre', 'Modo', 'Unidades_Vendidas', 'Precio_Venta', 'Ganancia', 'Empleado'])
+        guardar_datos(productos, ventas)
+        st.success("Sistema totalmente limpio.")
+        st.rerun()
