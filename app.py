@@ -11,13 +11,15 @@ if "autenticado" not in st.session_state:
     st.session_state["autenticado"] = False
 
 if not st.session_state["autenticado"]:
-    st.title("🔐 Acceso al Sistema")
+    st.title("🔐 Acceso De La Tierra")
     pwd = st.text_input("Clave Maestra:", type="password")
     nombre_e = st.text_input("Nombre del Empleado:")
     if st.button("Entrar"):
         if pwd == "1234" and nombre_e != "":
             st.session_state["autenticado"] = True
             st.session_state["empleado"] = nombre_e
+            with open("login_log.txt", "a") as f:
+                f.write(f"{datetime.now()}: {nombre_e} entró\n")
             st.rerun()
     st.stop()
 
@@ -39,84 +41,124 @@ def guardar_datos(p, v):
 
 productos, ventas = cargar_datos()
 
-# --- MENÚ COMPLETO (SIN QUITAR NADA) ---
+# --- MENÚ DE 8 PESTAÑAS ---
 st.sidebar.title(f"👤 {st.session_state['empleado']}")
-opcion = st.sidebar.selectbox("Menú", [
-    "Registrar Ventas", 
-    "Inventario Real", 
-    "Configurar Productos", 
-    "Añadir Stock",
-    "Editar Precios",
-    "Dashboard", 
-    "Gestión (Reset)"
+opcion = st.sidebar.selectbox("Menú Principal", [
+    "🛒 Registrar Venta", 
+    "📋 Inventario Real", 
+    "📊 Dashboard", 
+    "📅 Registro Mensual",
+    "✨ Configurar Productos", 
+    "📥 Añadir Stock",
+    "✏️ Editar Producto", 
+    "⚙️ Gestión (Reset)"
 ])
 
-# --- 1. REGISTRAR VENTAS ---
-if opcion == "Registrar Ventas":
-    st.header("🛒 Ventas")
-    busqueda = st.text_input("🔍 Buscar producto...")
-    df_m = productos[productos['Nombre'].str.contains(busqueda, case=False)] if busqueda else productos
-    
-    for idx, p in df_m.iterrows():
-        with st.expander(f"📦 {p['Nombre']}"):
-            modos = eval(p['Modos'])
-            for m_idx, m in enumerate(modos):
-                if st.button(f"{m['nombre']} - C${m['precio']}", key=f"v_{idx}_{m_idx}"):
-                    cost_u = p['Costo_Por_Bulk'] / p['Unidades_Por_Bulk']
-                    ganancia_v = m['precio'] - (m['unidades'] * cost_u)
-                    nv = pd.DataFrame([{'Fecha': datetime.now(), 'Nombre': p['Nombre'], 'Modo': m['nombre'], 'Unidades_Vendidas': m['unidades'], 'Precio_Venta': m['precio'], 'Ganancia': round(ganancia_v, 2), 'Empleado': st.session_state['empleado']}])
-                    ventas = pd.concat([ventas, nv], ignore_index=True)
-                    guardar_datos(productos, ventas)
-                    st.success("✅ Venta Guardada")
-                    st.rerun()
+# 1. REGISTRAR VENTA
+if opcion == "🛒 Registrar Venta":
+    st.header("🛒 Terminal de Ventas")
+    if productos.empty:
+        st.warning("Primero configura un producto en la pestaña ✨")
+    else:
+        busqueda = st.text_input("🔍 Buscar...")
+        df_m = productos[productos['Nombre'].str.contains(busqueda, case=False)] if busqueda else productos
+        for idx, p in df_m.iterrows():
+            with st.expander(f"📦 {p['Nombre']}"):
+                modos = eval(p['Modos'])
+                for m_idx, m in enumerate(modos):
+                    if st.button(f"Vender {m['nombre']} - C${m['precio']}", key=f"v_{idx}_{m_idx}"):
+                        cost_u = p['Costo_Por_Bulk'] / p['Unidades_Por_Bulk']
+                        ganancia_v = m['precio'] - (m['unidades'] * cost_u)
+                        nv = pd.DataFrame([{'Fecha': datetime.now(), 'Nombre': p['Nombre'], 'Modo': m['nombre'], 'Unidades_Vendidas': m['unidades'], 'Precio_Venta': m['precio'], 'Ganancia': round(ganancia_v, 2), 'Empleado': st.session_state['empleado']}])
+                        ventas = pd.concat([ventas, nv], ignore_index=True)
+                        guardar_datos(productos, ventas)
+                        st.success("¡Venta realizada!")
+                        st.rerun()
 
-# --- 2. INVENTARIO REAL ---
-elif opcion == "Inventario Real":
-    st.header("📋 Control de Stock y Ganancias")
+# 2. INVENTARIO REAL
+elif opcion == "📋 Inventario Real":
+    st.header("📋 Inventario y Ganancias")
     if not productos.empty:
         res_v = ventas.groupby('Nombre').agg({'Unidades_Vendidas': 'sum', 'Precio_Venta': 'sum', 'Ganancia': 'sum'}).reset_index()
         df_inv = pd.merge(productos, res_v, on='Nombre', how='left').fillna(0)
-        df_inv['Stock_Restante'] = df_inv['Unidades_Por_Bulk'] - df_inv['Unidades_Vendidas']
-        df_inv['%_Ganancia'] = (df_inv['Ganancia'] / df_inv['Precio_Venta'] * 100).fillna(0).round(2)
-        tabla = df_inv[['Nombre', 'Unidades_Por_Bulk', 'Stock_Restante', 'Unidades_Vendidas', 'Precio_Venta', 'Ganancia', '%_Ganancia']]
-        st.dataframe(tabla, use_container_width=True)
-        st.metric("Ganancia Total Acumulada", f"C$ {ventas['Ganancia'].sum():.2f}")
-    else:
-        st.info("No hay productos.")
+        df_inv['Stock_Actual'] = df_inv['Unidades_Por_Bulk'] - df_inv['Unidades_Vendidas']
+        df_inv['%_Ganancia'] = (df_inv['Ganancia'] / df_inv['Precio_Venta'] * 100).fillna(0).round(1)
+        st.table(df_inv[['Nombre', 'Stock_Actual', 'Unidades_Vendidas', 'Precio_Venta', 'Ganancia', '%_Ganancia']])
+    else: st.info("Inventario vacío.")
 
-# --- 3. CONFIGURAR PRODUCTOS (NUEVOS) ---
-elif opcion == "Configurar Productos":
-    st.header("🆕 Nuevo Producto")
-    with st.form("nuevo_p"):
-        nom = st.text_input("Nombre del Producto")
-        costo_b = st.number_input("Costo del Bulto (C$)", min_value=0.0)
-        cant_b = st.number_input("Total Unidades en el Bulto", min_value=1)
-        st.write("---")
-        st.write("Define cómo lo vendes (Ej: Detalle, Media Docena, Docena):")
-        m1_n = st.text_input("Modo 1 (Nombre)", value="Detalle")
-        m1_u = st.number_input("Unidades en Modo 1", value=1)
-        m1_p = st.number_input("Precio Modo 1", value=0.0)
-        if st.form_submit_button("Guardar Producto"):
-            modos_list = [{'nombre': m1_n, 'unidades': m1_u, 'precio': m1_p}]
-            nuevo = pd.DataFrame([{'Nombre': nom, 'Unidades_Por_Bulk': cant_b, 'Costo_Por_Bulk': costo_b, 'Modos': str(modos_list)}])
-            productos = pd.concat([productos, nuevo], ignore_index=True)
+# 3. DASHBOARD
+elif opcion == "📊 Dashboard":
+    st.header("📊 Resumen de Negocio")
+    if not ventas.empty:
+        col1, col2 = st.columns(2)
+        col1.metric("Ingreso Total", f"C$ {ventas['Precio_Venta'].sum():.2f}")
+        col2.metric("Ganancia Limpia", f"C$ {ventas['Ganancia'].sum():.2f}")
+        st.subheader("Velas de Ganancia por Producto")
+        st.bar_chart(ventas.groupby('Nombre')['Ganancia'].sum())
+    else: st.info("📊 Las gráficas aparecerán después de la primera venta.")
+
+# 4. REGISTRO MENSUAL
+elif opcion == "📅 Registro Mensual":
+    st.header("📅 Historial por Mes")
+    if not ventas.empty:
+        ventas['Mes'] = ventas['Fecha'].dt.strftime('%Y-%m')
+        mes = st.selectbox("Mes:", ventas['Mes'].unique())
+        st.write(ventas[ventas['Mes'] == mes])
+    else: st.info("No hay ventas registradas aún.")
+
+# 5. CONFIGURAR PRODUCTOS
+elif opcion == "✨ Configurar Productos":
+    st.header("✨ Nuevo Producto")
+    with st.form("f1"):
+        n = st.text_input("Nombre")
+        cb = st.number_input("Costo Bulto", 0.0)
+        ub = st.number_input("Unidades en Bulto", 1)
+        pv = st.number_input("Precio Venta (Detalle)", 0.0)
+        if st.form_submit_button("Guardar"):
+            mod = str([{'nombre': 'Detalle', 'unidades': 1, 'precio': pv}])
+            new = pd.DataFrame([{'Nombre': n, 'Unidades_Por_Bulk': ub, 'Costo_Por_Bulk': cb, 'Modos': mod}])
+            productos = pd.concat([productos, new], ignore_index=True)
             guardar_datos(productos, ventas)
-            st.success("Producto creado")
+            st.success("Producto creado.")
             st.rerun()
 
-# --- 4. GESTIÓN (RESET PARA TUS PRUEBAS) ---
-elif opcion == "Gestión (Reset)":
-    st.header("⚙️ Zona de Peligro")
-    st.warning("Esto borrará permanentemente los datos seleccionados.")
-    if st.button("🚨 BORRAR SOLO VENTAS (Dejar productos)"):
-        ventas = pd.DataFrame(columns=['Fecha', 'Nombre', 'Modo', 'Unidades_Vendidas', 'Precio_Venta', 'Ganancia', 'Empleado'])
-        guardar_datos(productos, ventas)
-        st.success("Ventas reseteadas a cero.")
+# 6. AÑADIR STOCK
+elif opcion == "📥 Añadir Stock":
+    st.header("📥 Cargar Mercadería")
+    if not productos.empty:
+        p_sel = st.selectbox("¿A qué producto?", productos['Nombre'])
+        idx = productos[productos['Nombre'] == p_sel].index[0]
+        cuanto = st.number_input("Unidades nuevas", 1)
+        if st.button("Sumar al Inventario"):
+            productos.at[idx, 'Unidades_Por_Bulk'] += cuanto
+            guardar_datos(productos, ventas)
+            st.success("Stock actualizado.")
+    else: st.warning("Crea productos primero.")
+
+# 7. EDITAR PRODUCTO (CORREGIDO - NO MÁS NEGRO)
+elif opcion == "✏️ Editar Producto":
+    st.header("✏️ Modificar Existentes")
+    if not productos.empty:
+        p_edit = st.selectbox("Selecciona producto:", productos['Nombre'])
+        idx = productos[productos['Nombre'] == p_edit].index[0]
+        # Cargamos los valores actuales para que no esté vacío
+        nom_act = st.text_input("Nombre:", value=productos.at[idx, 'Nombre'])
+        cost_act = st.number_input("Costo Bulto:", value=float(productos.at[idx, 'Costo_Por_Bulk']))
+        if st.button("Actualizar"):
+            productos.at[idx, 'Nombre'] = nom_act
+            productos.at[idx, 'Costo_Por_Bulk'] = cost_act
+            guardar_datos(productos, ventas)
+            st.success("Cambios aplicados.")
+            st.rerun()
+    else: st.info("No hay productos para editar.")
+
+# 8. GESTIÓN (RESET)
+elif opcion == "⚙️ Gestión (Reset)":
+    st.header("⚙️ Limpieza de Sistema")
+    if st.button("🚨 BORRAR SOLO VENTAS"):
+        guardar_datos(productos, pd.DataFrame(columns=['Fecha', 'Nombre', 'Modo', 'Unidades_Vendidas', 'Precio_Venta', 'Ganancia', 'Empleado']))
         st.rerun()
-    
-    if st.button("🧨 BORRAR TODO (Ventas y Productos)"):
-        productos = pd.DataFrame(columns=['Nombre', 'Unidades_Por_Bulk', 'Costo_Por_Bulk', 'Modos'])
-        ventas = pd.DataFrame(columns=['Fecha', 'Nombre', 'Modo', 'Unidades_Vendidas', 'Precio_Venta', 'Ganancia', 'Empleado'])
-        guardar_datos(productos, ventas)
-        st.success("Sistema totalmente limpio.")
+    if st.button("🧨 RESETEAR TODO"):
+        if os.path.exists('productos.csv'): os.remove('productos.csv')
+        if os.path.exists('ventas.csv'): os.remove('ventas.csv')
         st.rerun()
