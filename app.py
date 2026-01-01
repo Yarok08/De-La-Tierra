@@ -41,7 +41,7 @@ productos, ventas = cargar_datos()
 
 # --- MENÚ ---
 st.sidebar.title(f"👤 {st.session_state['empleado']}")
-opcion = st.sidebar.selectbox("Menú", ["Registrar Ventas", "Inventario Real", "Dashboard", "Editar Productos", "Gestión (Reset)"])
+opcion = st.sidebar.selectbox("Menú", ["Registrar Ventas", "Inventario Real", "Dashboard", "Editar Productos"])
 
 # --- VISTA DE VENTAS ---
 if opcion == "Registrar Ventas":
@@ -54,6 +54,7 @@ if opcion == "Registrar Ventas":
             modos = eval(p['Modos'])
             for m_idx, m in enumerate(modos):
                 if st.button(f"{m['nombre']} - C${m['precio']}", key=f"v_{idx}_{m_idx}"):
+                    # Cálculo de ganancia basado en el costo por unidad
                     cost_u = p['Costo_Por_Bulk'] / p['Unidades_Por_Bulk']
                     ganancia_v = m['precio'] - (m['unidades'] * cost_u)
                     
@@ -63,76 +64,31 @@ if opcion == "Registrar Ventas":
                     st.success("✅ Venta Guardada")
                     st.rerun()
 
-# --- INVENTARIO REAL (AQUÍ ESTÁ LA CORRECCIÓN) ---
+# --- INVENTARIO REAL (LA PARTE QUE TE FALTABA) ---
 elif opcion == "Inventario Real":
-    st.header("📋 Control de Inventario y Ganancias")
+    st.header("📋 Control de Stock y Ganancias Reales")
     
     if not productos.empty:
-        # Calculamos todo dinámicamente
-        resumen_ventas = ventas.groupby('Nombre').agg({
-            'Unidades_Vendidas': 'sum',
-            'Precio_Venta': 'sum',
-            'Ganancia': 'sum'
-        }).reset_index()
+        # Sumamos las ventas por cada producto
+        res_v = ventas.groupby('Nombre').agg({'Unidades_Vendidas': 'sum', 'Precio_Venta': 'sum', 'Ganancia': 'sum'}).reset_index()
         
-        # Unimos con la tabla de productos
-        df_inv = pd.merge(productos, resumen_ventas, on='Nombre', how='left').fillna(0)
+        # Unimos con los productos
+        df_inv = pd.merge(productos, res_v, on='Nombre', how='left').fillna(0)
         
-        # Calculamos Stock Restante
-        df_inv['Stock_Restante_Unidades'] = df_inv['Unidades_Por_Bulk'] - df_inv['Unidades_Vendidas']
+        # CÁLCULOS MÁGICOS
+        df_inv['Stock_Restante'] = df_inv['Unidades_Por_Bulk'] - df_inv['Unidades_Vendidas']
+        df_inv['%_Ganancia'] = (df_inv['Ganancia'] / df_inv['Precio_Venta'] * 100).fillna(0).round(2)
         
-        # Calculamos % de Ganancia sobre la venta
-        df_inv['%_Margen'] = (df_inv['Ganancia'] / df_inv['Precio_Venta'] * 100).fillna(0).round(2)
+        # Tabla final limpia
+        tabla = df_inv[['Nombre', 'Unidades_Por_Bulk', 'Stock_Restante', 'Unidades_Vendidas', 'Precio_Venta', 'Ganancia', '%_Ganancia']]
         
-        # Seleccionamos y renombramos columnas para que sea claro para ti
-        final_table = df_inv[[
-            'Nombre', 
-            'Unidades_Por_Bulk', 
-            'Stock_Restante_Unidades', 
-            'Unidades_Vendidas', 
-            'Precio_Venta', 
-            'Ganancia', 
-            '%_Margen'
-        ]]
+        # Mostrar tabla
+        st.write("### Resumen de Inventario")
+        st.dataframe(tabla, use_container_width=True)
         
-        st.dataframe(final_table.style.format({
-            'Precio_Venta': 'C${:.2f}',
-            'Ganancia': 'C${:.2f}',
-            '%_Margen': '{:.2f}%'
-        }), use_container_width=True)
-        
-        st.info("💡 'Precio_Venta' es el dinero total que ha entrado. 'Ganancia' es lo que te queda limpio después de quitar el costo.")
+        # Métricas grandes
+        c1, c2 = st.columns(2)
+        c1.metric("Dinero Total en Ventas", f"C$ {ventas['Precio_Venta'].sum():.2f}")
+        c2.metric("Ganancia Neta (Limpia)", f"C$ {ventas['Ganancia'].sum():.2f}")
     else:
-        st.warning("No hay productos configurados.")
-
-# --- DASHBOARD ---
-elif opcion == "Dashboard":
-    st.header("📈 Rendimiento")
-    if not ventas.empty:
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Ventas Totales", f"C$ {ventas['Precio_Venta'].sum():.2f}")
-        c2.metric("Ganancia Limpia", f"C$ {ventas['Ganancia'].sum():.2f}")
-        # Margen promedio
-        margen = (ventas['Ganancia'].sum() / ventas['Precio_Venta'].sum() * 100) if ventas['Precio_Venta'].sum() > 0 else 0
-        c3.metric("Margen Promedio", f"{margen:.2f}%")
-        
-        st.bar_chart(ventas.groupby('Nombre')['Ganancia'].sum())
-    else:
-        st.info("Sin ventas registradas.")
-
-# --- RESTO DE OPCIONES (EDITAR, ETC) ---
-elif opcion == "Editar Productos":
-    st.header("📝 Editar")
-    p_edit = st.selectbox("Producto:", productos['Nombre'])
-    idx = productos[productos['Nombre'] == p_edit].index[0]
-    with st.form("edit"):
-        nuevo_n = st.text_input("Nombre", value=productos.at[idx, 'Nombre'])
-        c_b = st.number_input("Costo Bulto", value=float(productos.at[idx, 'Costo_Por_Bulk']))
-        u_b = st.number_input("Unidades en Bulto", value=int(productos.at[idx, 'Unidades_Por_Bulk']))
-        if st.form_submit_button("Guardar Cambios"):
-            productos.at[idx, 'Nombre'] = nuevo_n
-            productos.at[idx, 'Costo_Por_Bulk'] = c_b
-            productos.at[idx, 'Unidades_Por_Bulk'] = u_b
-            guardar_datos(productos, ventas)
-            st.success("Actualizado")
-            st.rerun()
+        st.warning("No hay productos registrados.")
